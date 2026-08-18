@@ -1,4 +1,4 @@
-import { Body, Controller, Injectable, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Injectable, Post, Req, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TransactionType } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
@@ -84,6 +84,11 @@ export class TelegramService {
 
   async unlink(userId: string) {
     return this.db.telegramAccount.deleteMany({ where: { userId } });
+  }
+
+  async status(userId: string) {
+    const account = await this.db.telegramAccount.findFirst({ where: { userId }, select: { id: true } });
+    return { linked: Boolean(account) };
   }
 
   async webhook(body: any, secret?: string) {
@@ -214,5 +219,7 @@ export class TelegramController {
   @Post('link-token') token(@CurrentUser() user: AuthUser) { return this.telegram.linkToken(user.id); }
   @UseGuards(AuthGuard)
   @Post('unlink') unlink(@CurrentUser() user: AuthUser) { return this.telegram.unlink(user.id); }
+  @UseGuards(AuthGuard)
+  @Get('status') status(@CurrentUser() user: AuthUser) { return this.telegram.status(user.id); }
   @Post('webhook') webhook(@Body() body: any, @Req() request: any) { return this.telegram.webhook(body, request.headers['x-telegram-bot-api-secret-token']); }
 }
