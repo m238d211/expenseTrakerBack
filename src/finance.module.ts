@@ -387,4 +387,5 @@ export class FinanceController {
 export class RecurringJobController {
   constructor(private readonly f: FinanceService, private readonly config: ConfigService) {}
   @Post("recurring") run(@Headers("x-cron-secret") secret?: string, @Headers("authorization") authorization?: string) { const expected = this.config.get<string>("CRON_SECRET"); const supplied = secret || authorization?.replace(/^Bearer\s+/i, ""); if (!expected || supplied !== expected) throw new Error("INVALID_CRON_SECRET"); return this.f.processRecurring(); }
+  @Get("recurring") runGet(@Headers("x-cron-secret") secret?: string, @Headers("authorization") authorization?: string) { return this.run(secret, authorization); }
 }
