@@ -12,10 +12,17 @@ export function savingsRate(income: number, expenses: number) {
 @Injectable()
 export class AnalyticsService {
   constructor(private readonly db: DatabaseService) {}
+  private recurringIncomeUntil(incomes: Array<{ amount: number; recurring: boolean; createdAt: Date }>, until: Date) {
+    return sum(incomes.filter((x) => x.recurring).map((income) => {
+      const created = new Date(Date.UTC(income.createdAt.getUTCFullYear(), income.createdAt.getUTCMonth(), 1));
+      const months = (until.getUTCFullYear() - created.getUTCFullYear()) * 12 + until.getUTCMonth() - created.getUTCMonth();
+      return Math.max(0, months) * income.amount;
+    }));
+  }
   async monthly(userId: string, year: number, month: number) {
     const start = new Date(Date.UTC(year, month - 1, 1)),
       end = new Date(Date.UTC(year, month, 1));
-    const [tx, incomes, budgets] = await Promise.all([
+    const [tx, previousTx, incomes, budgets] = await Promise.all([
       this.db.transaction.findMany({
         where: {
           userId,
@@ -23,6 +30,10 @@ export class AnalyticsService {
           transactionDate: { gte: start, lt: end },
         },
         include: { category: true },
+      }),
+      this.db.transaction.findMany({
+        where: { userId, status: "confirmed", transactionDate: { lt: start } },
+        select: { type: true, amount: true },
       }),
       this.db.income.findMany({ where: { userId } }),
       this.db.budget.findMany({
@@ -33,7 +44,7 @@ export class AnalyticsService {
     const expenses = tx.filter((x) => x.type === "expense"),
       income = [
         ...tx.filter((x) => x.type === "income").map((x) => x.amount),
-        ...incomes.filter((x) => x.recurring).map((x) => x.amount),
+        ...incomes.filter((x) => x.recurring && x.createdAt < end).map((x) => x.amount),
       ];
     const byCategory = Object.entries(
       expenses.reduce<Record<string, number>>((a, x) => {
@@ -45,10 +56,15 @@ export class AnalyticsService {
     const top = byCategory.sort((a, b) => b[1] - a[1])[0];
     const totalIncome = sum(income),
       totalExpenses = sum(expenses.map((x) => x.amount));
+    const openingBalance =
+      sum(previousTx.filter((x) => x.type === "income").map((x) => x.amount)) -
+      sum(previousTx.filter((x) => x.type === "expense").map((x) => x.amount)) +
+      this.recurringIncomeUntil(incomes, start);
     return {
       month: `${year}-${String(month).padStart(2, "0")}`,
       income: totalIncome,
       expenses: totalExpenses,
+      openingBalance,
       savings: totalIncome - totalExpenses,
       savingsRate: savingsRate(totalIncome, totalExpenses),
       topCategory: top?.[0] || null,
@@ -91,12 +107,12 @@ export class AnalyticsService {
       ? Math.max(1, (salary.payDay - now.getUTCDate() + 31) % 31)
       : 30;
     return {
-      available: m.income - m.expenses,
+      available: m.openingBalance + m.income - m.expenses,
       savings: m.savings,
       daysUntilSalary: salary ? days : null,
       safeToSpend: salary
-        ? Math.max(0, Math.floor((m.income - m.expenses) / days))
-        : Math.max(0, m.income - m.expenses),
+        ? Math.max(0, Math.floor((m.openingBalance + m.income - m.expenses) / days))
+        : Math.max(0, m.openingBalance + m.income - m.expenses),
     };
   }
 }
