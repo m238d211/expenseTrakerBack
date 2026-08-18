@@ -33,7 +33,7 @@ export class AnalyticsService {
     const expenses = tx.filter((x) => x.type === "expense"),
       income = [
         ...tx.filter((x) => x.type === "income").map((x) => x.amount),
-        ...incomes.filter((x) => x.recurring || true).map((x) => x.amount),
+        ...incomes.filter((x) => x.recurring).map((x) => x.amount),
       ];
     const byCategory = Object.entries(
       expenses.reduce<Record<string, number>>((a, x) => {

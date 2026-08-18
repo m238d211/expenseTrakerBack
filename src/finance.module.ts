@@ -71,6 +71,21 @@ export class FinanceService {
     if (!x) throw new Error("NOT_FOUND");
     return x;
   }
+  private async inferTelegramCategory(userId: string, description: string) {
+    const rules: Array<[string, string[]]> = [
+      ["طعام", ["food", "eat", "meal", "restaurant", "مطعم", "غداء", "عشاء", "فطور", "اكل", "أكل", "خبز"]],
+      ["مواصلات", ["taxi", "uber", "careem", "fuel", "petrol", "بنزين", "تاكسي", "تكسي", "نقل", "سيارة"]],
+      ["فواتير", ["bill", "electric", "internet", "phone", "كهرباء", "ماء", "انترنت", "إنترنت", "هاتف", "فاتورة"]],
+      ["تسوق", ["shop", "shopping", "clothes", "شراء", "تسوق", "ملابس", "سوبرماركت", "market"]],
+      ["ترفيه", ["game", "cinema", "movie", "entertainment", "لعبة", "العاب", "ألعاب", "سينما", "ترفيه"]],
+      ["صحة", ["doctor", "medicine", "pharmacy", "طبيب", "دواء", "صيدلية", "مستشفى", "صحة"]],
+    ];
+    const text = description.toLowerCase();
+    const match = rules.find(([, keywords]) => keywords.some((keyword) => text.includes(keyword)));
+    if (!match) return undefined;
+    const existing = await this.db.category.findFirst({ where: { userId, name: match[0] } });
+    return (existing || await this.db.category.create({ data: { name: match[0], userId, isSystem: false } })).id;
+  }
   transactions(
     userId: string,
     q: {
@@ -110,13 +125,28 @@ export class FinanceService {
       .then((data) => ({ data, page, limit }));
   }
   async createTransaction(userId: string, d: TransactionDto) {
+    let categoryId = d.categoryId;
+    if (d.source === "telegram" && d.type === "expense" && !categoryId) {
+      categoryId = await this.inferTelegramCategory(userId, d.description);
+    }
+    if (d.source !== "telegram" && d.type === "expense" && !categoryId) {
+      const fallback = await this.db.category.findFirst({
+        where: { userId, name: "أخرى" },
+      });
+      const category =
+        fallback ||
+        (await this.db.category.create({
+          data: { name: "أخرى", userId, isSystem: false },
+        }));
+      categoryId = category.id;
+    }
     const transaction = await this.db.transaction.create({
       data: {
         amount: d.amount,
         type: d.type,
         description: d.description.trim(),
         userId,
-        categoryId: d.categoryId,
+        categoryId,
         source: d.source || "app",
         status: d.status || "confirmed",
         transactionDate: d.transactionDate
@@ -159,8 +189,21 @@ export class FinanceService {
     return this.db.income.create({ data: { ...d, userId } });
   }
   categories(userId: string) {
+    const defaults = ["طعام", "مواصلات", "فواتير", "تسوق", "ترفيه", "صحة", "أخرى"];
     return this.db.category.findMany({
       where: { OR: [{ isSystem: true }, { userId }] },
+    }).then(async (categories) => {
+      const existing = new Set(categories.filter((x) => x.userId === userId).map((x) => x.name));
+      const missing = defaults.filter((name) => !existing.has(name));
+      if (missing.length) {
+        await this.db.category.createMany({
+          data: missing.map((name) => ({ name, userId, isSystem: false })),
+        });
+        return this.db.category.findMany({
+          where: { OR: [{ isSystem: true }, { userId }] },
+        });
+      }
+      return categories;
     });
   }
   createCategory(userId: string, d: CategoryDto) {
