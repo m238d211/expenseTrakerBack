@@ -21,6 +21,7 @@ import {
 } from "class-validator";
 import { DatabaseService } from "./database.service";
 import { AuthGuard, AuthUser, CurrentUser } from "./auth";
+import { NotificationsService } from "./notifications.module";
 import {
   TransactionSource,
   TransactionStatus,
@@ -61,7 +62,10 @@ export class SavingsDto {
 }
 @Injectable()
 export class FinanceService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly notifications: NotificationsService,
+  ) {}
   private async own(userId: string, id: string) {
     const x = await this.db.transaction.findFirst({ where: { id, userId } });
     if (!x) throw new Error("NOT_FOUND");
@@ -105,8 +109,8 @@ export class FinanceService {
       })
       .then((data) => ({ data, page, limit }));
   }
-  createTransaction(userId: string, d: TransactionDto) {
-    return this.db.transaction.create({
+  async createTransaction(userId: string, d: TransactionDto) {
+    const transaction = await this.db.transaction.create({
       data: {
         amount: d.amount,
         type: d.type,
@@ -121,6 +125,14 @@ export class FinanceService {
       },
       include: { category: true },
     });
+    if (transaction.status === "confirmed") {
+      await this.notifications.send(
+        userId,
+        transaction.type === "income" ? "دخل جديد" : "مصروف جديد",
+        `${transaction.description} - ${transaction.amount.toLocaleString("en-US")} د.ع`,
+      );
+    }
+    return transaction;
   }
   async updateTransaction(
     userId: string,

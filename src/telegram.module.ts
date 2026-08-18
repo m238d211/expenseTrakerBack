@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'crypto';
 import { AuthGuard, AuthUser, CurrentUser } from './auth';
 import { DatabaseService } from './database.service';
 import { FinanceService, TransactionDto } from './finance.module';
+import { NotificationsService } from './notifications.module';
 
 export function parseExpense(text: string) {
   const match = text.trim().match(/^(\d+(?:\.\d+)?)\s*(.*)$/u);
@@ -27,6 +28,7 @@ export class TelegramService {
     private readonly db: DatabaseService,
     private readonly finance: FinanceService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async api(method: string, payload: Record<string, unknown>) {
@@ -166,6 +168,13 @@ export class TelegramService {
     }
     const status = match[1] === 'confirm' ? 'confirmed' : 'cancelled';
     await this.db.transaction.update({ where: { id: transaction.id }, data: { status } });
+    if (status === 'confirmed') {
+      await this.notifications.send(
+        account.userId,
+        'مصروف مؤكد من تيليگرام',
+        `${transaction.description} - ${transaction.amount.toLocaleString('en-US')} د.ع`,
+      );
+    }
     await this.answerCallback(callback.id, status === 'confirmed' ? 'Expense confirmed.' : 'Expense cancelled.');
     const chatId = callback.message?.chat?.id;
     if (chatId !== undefined && callback.message?.message_id !== undefined) await this.safeEdit(chatId, callback.message.message_id, `${status === 'confirmed' ? '✅ Confirmed' : '❌ Cancelled'}: ${transaction.amount} for "${transaction.description}"`);
