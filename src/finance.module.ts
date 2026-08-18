@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  Headers,
   UseGuards,
 } from "@nestjs/common";
 import {
@@ -22,11 +23,13 @@ import {
 import { DatabaseService } from "./database.service";
 import { AuthGuard, AuthUser, CurrentUser } from "./auth";
 import { NotificationsService } from "./notifications.module";
+import { ConfigService } from "@nestjs/config";
 import {
   TransactionSource,
   TransactionStatus,
   TransactionType,
   SavingsStatus,
+  RecurringFrequency,
 } from "@prisma/client";
 export class TransactionDto {
   @IsInt() @Min(1) amount!: number;
@@ -46,6 +49,7 @@ export class IncomeDto {
 export class CategoryDto {
   @IsString() name!: string;
   @IsOptional() @IsString() icon?: string;
+  @IsOptional() @IsString() color?: string;
 }
 export class BudgetDto {
   @IsInt() @Min(1) amount!: number;
@@ -59,6 +63,16 @@ export class SavingsDto {
   @IsOptional() @IsInt() @Min(0) currentAmount?: number;
   @IsOptional() @IsDateString() targetDate?: string;
   @IsOptional() @IsEnum(SavingsStatus) status?: SavingsStatus;
+}
+export class RecurringDto {
+  @IsInt() @Min(1) amount!: number;
+  @IsEnum(TransactionType) type!: TransactionType;
+  @IsString() description!: string;
+  @IsEnum(RecurringFrequency) frequency!: RecurringFrequency;
+  @IsDateString() nextRunAt!: string;
+  @IsOptional() @IsInt() @Min(1) dayOfMonth?: number;
+  @IsOptional() @IsString() categoryId?: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 }
 @Injectable()
 export class FinanceService {
@@ -161,8 +175,28 @@ export class FinanceService {
         transaction.type === "income" ? "دخل جديد" : "مصروف جديد",
         `${transaction.description} - ${transaction.amount.toLocaleString("en-US")} د.ع`,
       );
+      await this.notifyBudgetAlerts(userId, transaction.transactionDate);
     }
     return transaction;
+  }
+  private async notifyBudgetAlerts(userId: string, date: Date) {
+    const monthStart = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+    const monthEnd = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+    const [budgets, expenses] = await Promise.all([
+      this.db.budget.findMany({ where: { userId, startDate: { lt: monthEnd }, endDate: { gte: monthStart } } }),
+      this.db.transaction.findMany({ where: { userId, type: "expense", status: "confirmed", transactionDate: { gte: monthStart, lt: monthEnd } }, select: { amount: true, categoryId: true } }),
+    ]);
+    const periodKey = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+    for (const budget of budgets) {
+      const used = expenses.filter((x) => !budget.categoryId || x.categoryId === budget.categoryId).reduce((sum, x) => sum + x.amount, 0);
+      for (const threshold of [80, 100]) {
+        if (used * 100 < budget.amount * threshold) continue;
+        try {
+          await this.db.budgetAlert.create({ data: { budgetId: budget.id, threshold, periodKey } });
+          await this.notifications.send(userId, threshold === 100 ? "تجاوزت الميزانية" : "اقتربت من الميزانية", `استخدمت ${Math.round((used / budget.amount) * 100)}% من ميزانيتك.`);
+        } catch { /* one alert per threshold and month */ }
+      }
+    }
   }
   async updateTransaction(
     userId: string,
@@ -170,7 +204,7 @@ export class FinanceService {
     d: Partial<TransactionDto>,
   ) {
     await this.own(userId, id);
-    return this.db.transaction.update({
+    const transaction = await this.db.transaction.update({
       where: { id },
       data: {
         ...d,
@@ -178,6 +212,14 @@ export class FinanceService {
           ? { transactionDate: new Date(d.transactionDate) }
           : {}),
       },
+    });
+    if (transaction.status === "confirmed") await this.notifyBudgetAlerts(userId, transaction.transactionDate);
+    return transaction;
+  }
+  transaction(userId: string, id: string) {
+    return this.db.transaction.findFirst({ where: { id, userId }, include: { category: true } }).then((item) => {
+      if (!item) throw new Error("NOT_FOUND");
+      return item;
     });
   }
   async deleteTransaction(userId: string, id: string) {
@@ -209,6 +251,16 @@ export class FinanceService {
   createCategory(userId: string, d: CategoryDto) {
     return this.db.category.create({ data: { ...d, userId, isSystem: false } });
   }
+  async updateCategory(userId: string, id: string, d: Partial<CategoryDto>) {
+    const item = await this.db.category.findFirst({ where: { id, userId } });
+    if (!item) throw new Error("NOT_FOUND");
+    return this.db.category.update({ where: { id }, data: d });
+  }
+  async deleteCategory(userId: string, id: string) {
+    const item = await this.db.category.findFirst({ where: { id, userId } });
+    if (!item) throw new Error("NOT_FOUND");
+    return this.db.category.delete({ where: { id } });
+  }
   budgets(userId: string) {
     return this.db.budget.findMany({
       where: { userId },
@@ -227,6 +279,16 @@ export class FinanceService {
       },
     });
   }
+  async updateBudget(userId: string, id: string, d: Partial<BudgetDto>) {
+    const item = await this.db.budget.findFirst({ where: { id, userId } });
+    if (!item) throw new Error("NOT_FOUND");
+    return this.db.budget.update({ where: { id }, data: { ...d, ...(d.startDate ? { startDate: new Date(d.startDate) } : {}), ...(d.endDate ? { endDate: new Date(d.endDate) } : {}) }, include: { category: true } });
+  }
+  async deleteBudget(userId: string, id: string) {
+    const item = await this.db.budget.findFirst({ where: { id, userId } });
+    if (!item) throw new Error("NOT_FOUND");
+    return this.db.budget.delete({ where: { id } });
+  }
   savings(userId: string) {
     return this.db.savingsGoal.findMany({ where: { userId } });
   }
@@ -239,6 +301,22 @@ export class FinanceService {
       },
     });
   }
+  async updateSavings(userId: string, id: string, d: Partial<SavingsDto>) {
+    const item = await this.db.savingsGoal.findFirst({ where: { id, userId } });
+    if (!item) throw new Error("NOT_FOUND");
+    return this.db.savingsGoal.update({ where: { id }, data: { ...d, ...(d.targetDate ? { targetDate: new Date(d.targetDate) } : {}) } });
+  }
+  async deleteSavings(userId: string, id: string) {
+    const item = await this.db.savingsGoal.findFirst({ where: { id, userId } });
+    if (!item) throw new Error("NOT_FOUND");
+    return this.db.savingsGoal.delete({ where: { id } });
+  }
+  recurring(userId: string) { return this.db.recurringTransaction.findMany({ where: { userId }, include: { category: true }, orderBy: { nextRunAt: "asc" } }); }
+  createRecurring(userId: string, d: RecurringDto) { return this.db.recurringTransaction.create({ data: { ...d, userId, nextRunAt: new Date(d.nextRunAt), isActive: d.isActive ?? true } , include: { category: true } }); }
+  async updateRecurring(userId: string, id: string, d: Partial<RecurringDto>) { const item = await this.db.recurringTransaction.findFirst({ where: { id, userId } }); if (!item) throw new Error("NOT_FOUND"); return this.db.recurringTransaction.update({ where: { id }, data: { ...d, ...(d.nextRunAt ? { nextRunAt: new Date(d.nextRunAt) } : {}) }, include: { category: true } }); }
+  async deleteRecurring(userId: string, id: string) { const item = await this.db.recurringTransaction.findFirst({ where: { id, userId } }); if (!item) throw new Error("NOT_FOUND"); return this.db.recurringTransaction.delete({ where: { id } }); }
+  private nextRun(date: Date, frequency: RecurringFrequency, dayOfMonth?: number) { const next = new Date(date); if (frequency === RecurringFrequency.daily) next.setUTCDate(next.getUTCDate() + 1); if (frequency === RecurringFrequency.weekly) next.setUTCDate(next.getUTCDate() + 7); if (frequency === RecurringFrequency.monthly) { next.setUTCMonth(next.getUTCMonth() + 1); if (dayOfMonth) next.setUTCDate(Math.min(dayOfMonth, new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate())); } if (frequency === RecurringFrequency.yearly) next.setUTCFullYear(next.getUTCFullYear() + 1); return next; }
+  async processRecurring(now = new Date()) { const due = await this.db.recurringTransaction.findMany({ where: { isActive: true, nextRunAt: { lte: now } }, take: 200 }); let created = 0; for (const item of due) { try { await this.db.transaction.create({ data: { amount: item.amount, type: item.type, description: item.description, source: "recurring", status: "confirmed", transactionDate: item.nextRunAt, scheduledFor: item.nextRunAt, recurringTransactionId: item.id, userId: item.userId, categoryId: item.categoryId } }); await this.db.recurringTransaction.update({ where: { id: item.id }, data: { lastRunAt: item.nextRunAt, nextRunAt: this.nextRun(item.nextRunAt, item.frequency, item.dayOfMonth ?? undefined) } }); await this.notifications.send(item.userId, "عملية متكررة جديدة", `${item.description} - ${item.amount.toLocaleString("en-US")} د.ع`); created++; } catch { /* unique scheduledFor makes retries idempotent */ } } return { processed: due.length, created }; }
 }
 @Controller()
 @UseGuards(AuthGuard)
@@ -247,6 +325,7 @@ export class FinanceController {
   @Get("transactions") list(@CurrentUser() u: AuthUser, @Query() q: any) {
     return this.f.transactions(u.id, q);
   }
+  @Get("transactions/:id") get(@CurrentUser() u: AuthUser, @Param("id") id: string) { return this.f.transaction(u.id, id); }
   @Post("transactions") create(
     @CurrentUser() u: AuthUser,
     @Body() d: TransactionDto,
@@ -275,12 +354,16 @@ export class FinanceController {
   @Post("categories") cat(@CurrentUser() u: AuthUser, @Body() d: CategoryDto) {
     return this.f.createCategory(u.id, d);
   }
+  @Patch("categories/:id") updateCat(@CurrentUser() u: AuthUser, @Param("id") id: string, @Body() d: Partial<CategoryDto>) { return this.f.updateCategory(u.id, id, d); }
+  @Delete("categories/:id") deleteCat(@CurrentUser() u: AuthUser, @Param("id") id: string) { return this.f.deleteCategory(u.id, id); }
   @Get("budgets") buds(@CurrentUser() u: AuthUser) {
     return this.f.budgets(u.id);
   }
   @Post("budgets") bud(@CurrentUser() u: AuthUser, @Body() d: BudgetDto) {
     return this.f.createBudget(u.id, d);
   }
+  @Patch("budgets/:id") updateBud(@CurrentUser() u: AuthUser, @Param("id") id: string, @Body() d: Partial<BudgetDto>) { return this.f.updateBudget(u.id, id, d); }
+  @Delete("budgets/:id") deleteBud(@CurrentUser() u: AuthUser, @Param("id") id: string) { return this.f.deleteBudget(u.id, id); }
   @Get("savings-goals") goals(@CurrentUser() u: AuthUser) {
     return this.f.savings(u.id);
   }
@@ -290,4 +373,16 @@ export class FinanceController {
   ) {
     return this.f.createSavings(u.id, d);
   }
+  @Patch("savings-goals/:id") updateGoal(@CurrentUser() u: AuthUser, @Param("id") id: string, @Body() d: Partial<SavingsDto>) { return this.f.updateSavings(u.id, id, d); }
+  @Delete("savings-goals/:id") deleteGoal(@CurrentUser() u: AuthUser, @Param("id") id: string) { return this.f.deleteSavings(u.id, id); }
+  @Get("recurring-transactions") recurring(@CurrentUser() u: AuthUser) { return this.f.recurring(u.id); }
+  @Post("recurring-transactions") createRecurring(@CurrentUser() u: AuthUser, @Body() d: RecurringDto) { return this.f.createRecurring(u.id, d); }
+  @Patch("recurring-transactions/:id") updateRecurring(@CurrentUser() u: AuthUser, @Param("id") id: string, @Body() d: Partial<RecurringDto>) { return this.f.updateRecurring(u.id, id, d); }
+  @Delete("recurring-transactions/:id") deleteRecurring(@CurrentUser() u: AuthUser, @Param("id") id: string) { return this.f.deleteRecurring(u.id, id); }
+}
+
+@Controller("internal/jobs")
+export class RecurringJobController {
+  constructor(private readonly f: FinanceService, private readonly config: ConfigService) {}
+  @Post("recurring") run(@Headers("x-cron-secret") secret?: string, @Headers("authorization") authorization?: string) { const expected = this.config.get<string>("CRON_SECRET"); const supplied = secret || authorization?.replace(/^Bearer\s+/i, ""); if (!expected || supplied !== expected) throw new Error("INVALID_CRON_SECRET"); return this.f.processRecurring(); }
 }

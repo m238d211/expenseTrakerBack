@@ -4,7 +4,7 @@ import { JwtModule } from "@nestjs/jwt";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { DatabaseService } from "./database.service";
 import { AuthController, AuthService } from "./auth.module";
-import { FinanceController, FinanceService } from "./finance.module";
+import { FinanceController, FinanceService, RecurringJobController } from "./finance.module";
 import { AnalyticsController, AnalyticsService } from "./analytics.module";
 import { TelegramController, TelegramService } from "./telegram.module";
 import {
@@ -40,6 +40,7 @@ import { HealthController } from "./health.controller";
     AnalyticsController,
     TelegramController,
     NotificationsController,
+    RecurringJobController,
   ],
   providers: [
     DatabaseService,

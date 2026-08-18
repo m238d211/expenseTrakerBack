@@ -1,4 +1,4 @@
-import { Controller, Get, Injectable, UseGuards } from "@nestjs/common";
+import { Controller, Get, Injectable, Query, UseGuards } from "@nestjs/common";
 import { DatabaseService } from "./database.service";
 import { AuthGuard, AuthUser, CurrentUser } from "./auth";
 export function sum(values: number[]) {
@@ -115,6 +115,18 @@ export class AnalyticsService {
         : Math.max(0, m.openingBalance + m.income - m.expenses),
     };
   }
+  async trends(userId: string, months = 6) {
+    const count = Math.min(12, Math.max(1, Number(months) || 6));
+    const now = new Date();
+    const result: Array<{ expenses: number; [key: string]: unknown }> = [];
+    for (let offset = count - 1; offset >= 0; offset--) {
+      const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+      const item = await this.monthly(userId, date.getUTCFullYear(), date.getUTCMonth() + 1);
+      const previousExpenses = result.length ? result[result.length - 1].expenses : undefined;
+      result.push({ ...item, changePercentage: previousExpenses ? Math.round(((item.expenses - previousExpenses) / previousExpenses) * 10000) / 100 : null });
+    }
+    return result;
+  }
 }
 @Controller("analytics")
 @UseGuards(AuthGuard)
@@ -126,5 +138,8 @@ export class AnalyticsController {
   }
   @Get("safe-to-spend") safe(@CurrentUser() u: AuthUser) {
     return this.a.safe(u.id);
+  }
+  @Get("trends") trends(@CurrentUser() u: AuthUser, @Query("months") months?: string) {
+    return this.a.trends(u.id, Number(months) || 6);
   }
 }
