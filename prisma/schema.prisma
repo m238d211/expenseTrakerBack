@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  expense
+  income
+}
+
+enum TransactionSource {
+  app
+  telegram
+}
+
+enum TransactionStatus {
+  pending
+  confirmed
+  cancelled
+}
+
+enum SavingsStatus {
+  active
+  completed
+  cancelled
+}
+
+model User {
+  id                String               @id @default(uuid())
+  name              String
+  email             String               @unique
+  passwordHash      String
+  currency          String               @default("IQD")
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  transactions      Transaction[]
+  incomes           Income[]
+  categories        Category[]
+  budgets           Budget[]
+  savingsGoals      SavingsGoal[]
+  telegramAccounts  TelegramAccount[]
+  devices           NotificationDevice[]
+  linkTokens        TelegramLinkToken[]
+}
+
+model Category {
+  id           String        @id @default(uuid())
+  name         String
+  icon         String?
+  isSystem     Boolean       @default(false)
+  userId       String?
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@index([userId])
+}
+
+model Transaction {
+  id              String            @id @default(uuid())
+  amount          Int
+  type            TransactionType
+  description     String
+  source          TransactionSource @default(app)
+  status          TransactionStatus @default(confirmed)
+  transactionDate DateTime
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  userId          String
+  categoryId      String?
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category        Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, transactionDate])
+  @@index([userId, status])
+}
+
+model Income {
+  id        String   @id @default(uuid())
+  amount    Int
+  type      String
+  payDay    Int
+  recurring Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Budget {
+  id         String    @id @default(uuid())
+  amount     Int
+  startDate  DateTime
+  endDate    DateTime
+  userId     String
+  categoryId String?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startDate, endDate])
+}
+
+model SavingsGoal {
+  id            String        @id @default(uuid())
+  name          String
+  targetAmount  Int
+  currentAmount Int           @default(0)
+  targetDate    DateTime?
+  status        SavingsStatus @default(active)
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model TelegramAccount {
+  id             String   @id @default(uuid())
+  telegramUserId String   @unique
+  chatId         String
+  userId         String
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TelegramLinkToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model TelegramUpdate {
+  id         String   @id @default(uuid())
+  updateId   Int      @unique
+  receivedAt DateTime @default(now())
+}
+
+model NotificationDevice {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  platform  String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

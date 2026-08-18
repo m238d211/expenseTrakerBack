@@ -1,0 +1,19 @@
+import { Body, Controller, Injectable, Post, Req } from '@nestjs/common';
+import { createHash, randomBytes } from 'crypto';
+import { ConfigService } from '@nestjs/config';
+import { DatabaseService } from './database.service';
+import { FinanceService, TransactionDto } from './finance.module';
+import { TransactionType } from '@prisma/client';
+import { AuthGuard, AuthUser, CurrentUser } from './auth';
+import { UseGuards } from '@nestjs/common';
+export function parseExpense(text:string){const m=text.trim().match(/^(\d+(?:\.\d+)?)\s*(.*)$/u);if(!m||!m[2].trim()) throw new Error('MALFORMED_EXPENSE');const amount=Math.round(Number(m[1]));if(!Number.isSafeInteger(amount)||amount<=0) throw new Error('INVALID_AMOUNT');return {amount,description:m[2].trim(),type:TransactionType.expense};}
+@Injectable()
+export class TelegramService {
+ constructor(private readonly db:DatabaseService,private readonly finance:FinanceService,private readonly config:ConfigService){}
+ async linkToken(userId:string){const raw=randomBytes(24).toString('base64url');await this.db.telegramLinkToken.create({data:{tokenHash:createHash('sha256').update(raw).digest('hex'),userId,expiresAt:new Date(Date.now()+10*60*1000)}});return {token:raw,expiresInSeconds:600};}
+ async unlink(userId:string){return this.db.telegramAccount.deleteMany({where:{userId}});}
+ async webhook(body:any,secret?:string){const expected=this.config.get('TELEGRAM_WEBHOOK_SECRET');if(expected&&secret!==expected) throw new Error('INVALID_WEBHOOK_SECRET');const updateId=body?.update_id;if(!Number.isInteger(updateId)) return {ok:true};try{await this.db.telegramUpdate.create({data:{updateId}});}catch{return {ok:true,duplicate:true};}const text=body?.message?.text,callback=body?.callback_query,telegramUserId=String(body?.message?.from?.id??callback?.from?.id??'');if(callback)return this.callback(callback,telegramUserId);if(!text||!telegramUserId)return {ok:true};const account=await this.db.telegramAccount.findUnique({where:{telegramUserId}});if(text.startsWith('/start ')){const raw=text.slice(7).trim(),tokenHash=createHash('sha256').update(raw).digest('hex');const token=await this.db.telegramLinkToken.findFirst({where:{tokenHash,expiresAt:{gt:new Date()}}});if(token){await this.db.$transaction([this.db.telegramAccount.upsert({where:{telegramUserId},create:{telegramUserId,chatId:String(body.message.chat.id),userId:token.userId},update:{chatId:String(body.message.chat.id),userId:token.userId}}),this.db.telegramLinkToken.delete({where:{id:token.id}})]);}return {ok:true};}if(!account)return {ok:true,reason:'unlinked'};const parsed=parseExpense(text);const tx=await this.finance.createTransaction(account.userId,{...parsed,source:'telegram',status:'pending'} as TransactionDto);return {ok:true,transactionId:tx.id};}
+ private async callback(callback:any,telegramUserId:string){const account=await this.db.telegramAccount.findUnique({where:{telegramUserId}});const match=String(callback.data||'').match(/^(confirm|cancel):([\w-]+)$/);if(!account||!match)return {ok:true,reason:'expired_or_unowned'};const tx=await this.db.transaction.findFirst({where:{id:match[2],userId:account.userId,status:'pending'}});if(!tx)return {ok:true,reason:'expired_or_unowned'};await this.db.transaction.update({where:{id:tx.id},data:{status:match[1]==='confirm'?'confirmed':'cancelled'}});return {ok:true,status:match[1]};}
+}
+@Controller('telegram')
+export class TelegramController {constructor(private readonly t:TelegramService){} @UseGuards(AuthGuard) @Post('link-token') token(@CurrentUser()u:AuthUser){return this.t.linkToken(u.id);} @UseGuards(AuthGuard) @Post('unlink') unlink(@CurrentUser()u:AuthUser){return this.t.unlink(u.id);} @Post('webhook') webhook(@Body()b:any,@Req()req:any){return this.t.webhook(b,req.headers['x-telegram-bot-api-secret-token']);}}
