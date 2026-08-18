@@ -1,5 +1,8 @@
 {
   "crons": [
-    { "path": "/internal/jobs/recurring", "schedule": "8 * * * *" }
+   {
+  "path": "/internal/jobs/recurring",
+  "schedule": "0 8 * * 0"
+}
   ]
 }

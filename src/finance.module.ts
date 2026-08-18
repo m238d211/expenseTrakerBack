@@ -110,6 +110,7 @@ export class FinanceService {
       categoryId?: string;
       source?: TransactionSource;
       type?: TransactionType;
+      search?: string;
     },
   ) {
     const page = Math.max(1, q.page || 1),
@@ -119,6 +120,7 @@ export class FinanceService {
       ...(q.categoryId ? { categoryId: q.categoryId } : {}),
       ...(q.source ? { source: q.source } : {}),
       ...(q.type ? { type: q.type } : {}),
+      ...(q.search ? { description: { contains: q.search.trim(), mode: "insensitive" as const } } : {}),
       ...(q.from || q.to
         ? {
             transactionDate: {
