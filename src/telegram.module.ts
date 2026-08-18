@@ -61,6 +61,11 @@ export class TelegramService {
 
   async linkToken(userId: string) {
     const raw = randomBytes(24).toString('base64url');
+    const bot = (await this.api('getMe', {})) as {
+      result?: { username?: string };
+    };
+    const username = bot.result?.username;
+    if (!username) throw new Error('Telegram bot username is unavailable');
     await this.db.telegramLinkToken.create({
       data: {
         tokenHash: createHash('sha256').update(raw).digest('hex'),
@@ -68,7 +73,11 @@ export class TelegramService {
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       },
     });
-    return { token: raw, expiresInSeconds: 600 };
+    return {
+      token: raw,
+      link: `https://t.me/${username}?start=${encodeURIComponent(raw)}`,
+      expiresInSeconds: 600,
+    };
   }
 
   async unlink(userId: string) {
