@@ -1,6 +1,6 @@
 # Expense Tracker Backend
 
-NestJS modular monolith with Prisma/SQLite. Financial amounts are integer minor units (for IQD, whole dinars), and all records are user-owned.
+NestJS modular monolith with Prisma/PostgreSQL. Financial amounts are integer minor units (for IQD, whole dinars), and all records are user-owned.
 
 ## Local setup
 
@@ -8,6 +8,8 @@ NestJS modular monolith with Prisma/SQLite. Financial amounts are integer minor 
 2. Install dependencies with `npm install`.
 3. Generate Prisma client and create the local database: `npx prisma generate` then `npx prisma migrate dev --name init`.
 4. Run `npm run start:dev`.
+
+For Vercel, use `npm run vercel-build` as the Build Command. It generates Prisma Client, applies pending PostgreSQL migrations, and then builds NestJS.
 
 Important environment secrets are backend-only. Telegram and Firebase integrations remain inactive until their credentials are configured. Telegram uses numeric user IDs and update-id idempotency; it never writes Prisma data outside the existing finance service.
 
