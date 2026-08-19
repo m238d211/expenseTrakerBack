@@ -44,7 +44,13 @@ export class AnalyticsService {
     const expenses = tx.filter((x) => x.type === "expense"),
       income = [
         ...tx.filter((x) => x.type === "income").map((x) => x.amount),
-        ...incomes.filter((x) => x.recurring && x.createdAt < end).map((x) => x.amount),
+        ...incomes
+          .filter((x) =>
+            x.recurring
+              ? x.createdAt < end
+              : x.createdAt >= start && x.createdAt < end,
+          )
+          .map((x) => x.amount),
       ];
     const byCategory = Object.entries(
       expenses.reduce<Record<string, number>>((a, x) => {
@@ -59,7 +65,8 @@ export class AnalyticsService {
     const openingBalance =
       sum(previousTx.filter((x) => x.type === "income").map((x) => x.amount)) -
       sum(previousTx.filter((x) => x.type === "expense").map((x) => x.amount)) +
-      this.recurringIncomeUntil(incomes, start);
+      this.recurringIncomeUntil(incomes, start) +
+      sum(incomes.filter((x) => !x.recurring && x.createdAt < start).map((x) => x.amount));
     return {
       month: `${year}-${String(month).padStart(2, "0")}`,
       income: totalIncome,
@@ -75,14 +82,14 @@ export class AnalyticsService {
         amount: b.amount,
         used: sum(
           expenses
-            .filter((x) => x.categoryId === b.categoryId)
+            .filter((x) => !b.categoryId || x.categoryId === b.categoryId)
             .map((x) => x.amount),
         ),
         usagePercentage: b.amount
           ? Math.round(
               (sum(
                 expenses
-                  .filter((x) => x.categoryId === b.categoryId)
+                  .filter((x) => !b.categoryId || x.categoryId === b.categoryId)
                   .map((x) => x.amount),
               ) /
                 b.amount) *
