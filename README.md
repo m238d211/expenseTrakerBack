@@ -28,12 +28,17 @@ Authenticated routes require `Authorization: Bearer <accessToken>`.
 | PATCH | `/transactions/:id` | Yes | Update an owned transaction |
 | DELETE | `/transactions/:id` | Yes | Delete an owned transaction |
 | POST | `/incomes` | Yes | Create an income record |
+| GET | `/incomes` | Yes | List owned income records |
+| PATCH | `/incomes/:id` | Yes | Update an owned income record |
+| DELETE | `/incomes/:id` | Yes | Delete an owned income record |
 | GET | `/categories` | Yes | List system and owned categories |
 | POST | `/categories` | Yes | Create a custom category |
 | GET | `/budgets` | Yes | List owned budgets |
 | POST | `/budgets` | Yes | Create a budget |
 | GET | `/savings-goals` | Yes | List owned savings goals |
 | POST | `/savings-goals` | Yes | Create a savings goal |
+| PATCH | `/savings-goals/:id` | Yes | Update an owned savings goal |
+| DELETE | `/savings-goals/:id` | Yes | Delete an owned savings goal |
 | GET | `/analytics/monthly` | Yes | Return the current month's financial summary |
 | GET | `/analytics/safe-to-spend` | Yes | Return the safe-to-spend calculation |
 | POST | `/telegram/link-token` | Yes | Create a short-lived Telegram linking token |

@@ -232,6 +232,20 @@ export class FinanceService {
     if (d.payDay > 31) throw new Error("INVALID_PAY_DAY");
     return this.db.income.create({ data: { ...d, userId } });
   }
+  incomes(userId: string) {
+    return this.db.income.findMany({ where: { userId }, orderBy: { createdAt: "desc" } });
+  }
+  async updateIncome(userId: string, id: string, d: Partial<IncomeDto>) {
+    const item = await this.db.income.findFirst({ where: { id, userId } });
+    if (!item) throw new Error("NOT_FOUND");
+    if (d.payDay !== undefined && (d.payDay < 1 || d.payDay > 31)) throw new Error("INVALID_PAY_DAY");
+    return this.db.income.update({ where: { id }, data: d });
+  }
+  async deleteIncome(userId: string, id: string) {
+    const item = await this.db.income.findFirst({ where: { id, userId } });
+    if (!item) throw new Error("NOT_FOUND");
+    return this.db.income.delete({ where: { id } });
+  }
   categories(userId: string) {
     const defaults = ["طعام", "مواصلات", "فواتير", "تسوق", "ترفيه", "صحة", "أخرى"];
     return this.db.category.findMany({
@@ -350,6 +364,9 @@ export class FinanceController {
   @Post("incomes") income(@CurrentUser() u: AuthUser, @Body() d: IncomeDto) {
     return this.f.createIncome(u.id, d);
   }
+  @Get("incomes") incomes(@CurrentUser() u: AuthUser) { return this.f.incomes(u.id); }
+  @Patch("incomes/:id") updateIncome(@CurrentUser() u: AuthUser, @Param("id") id: string, @Body() d: Partial<IncomeDto>) { return this.f.updateIncome(u.id, id, d); }
+  @Delete("incomes/:id") deleteIncome(@CurrentUser() u: AuthUser, @Param("id") id: string) { return this.f.deleteIncome(u.id, id); }
   @Get("categories") cats(@CurrentUser() u: AuthUser) {
     return this.f.categories(u.id);
   }
