@@ -12,6 +12,11 @@ import {
   NotificationsService,
 } from "./notifications.module";
 import { HealthController } from "./health.controller";
+import {
+  TaskReminderJobController,
+  TasksController,
+  TasksService,
+} from "./tasks.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -41,6 +46,8 @@ import { HealthController } from "./health.controller";
     TelegramController,
     NotificationsController,
     RecurringJobController,
+    TasksController,
+    TaskReminderJobController,
   ],
   providers: [
     DatabaseService,
@@ -49,6 +56,7 @@ import { HealthController } from "./health.controller";
     AnalyticsService,
     TelegramService,
     NotificationsService,
+    TasksService,
   ],
 })
 export class AppModule {}

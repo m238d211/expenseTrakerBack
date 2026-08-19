@@ -46,17 +46,30 @@ Authenticated routes require `Authorization: Bearer <accessToken>`.
 | POST | `/telegram/webhook` | No* | Receive Telegram webhook updates |
 | POST | `/notifications/devices` | Yes | Register an FCM device token |
 | DELETE | `/notifications/devices` | Yes | Remove an FCM device token |
+| GET | `/tasks` | Yes | List the current user's tasks and ideas |
+| POST | `/tasks` | Yes | Create a task or idea |
+| PATCH | `/tasks/:id` | Yes | Update, complete, or snooze an owned task |
+| DELETE | `/tasks/:id` | Yes | Delete an owned task |
+| POST | `/jobs/task-reminders` | `x-job-secret` | Process due task reminders for all users |
 
 The `GET /transactions` endpoint supports `page`, `limit`, `from`, `to`, `categoryId`, `source`, and `type` query parameters. Telegram webhook requests must include the configured `x-telegram-bot-api-secret-token` header when a webhook secret is configured.
+
+### Task reminder job
+
+Set a strong backend-only ` TASK_REMINDER_JOB_SECRET `. An external scheduler can
+send one daily POST request to `/jobs/task-reminders` with the `x-job-secret` header.
+The job checks all incomplete tasks, sends the seven-day or two-day reminder
+through the existing FCM device registration, and records each reminder so it
+is not sent twice. It is one batch job, not one scheduled job per task.
 
 ## Verification
 
 `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `npm run prisma:validate` are the expected checks.
 
 
-$token = "8650636824:AAE2cj9uj9Uo0d6pV3UJ4heC9Ew8pfo1hoc"
-$secret = "BXbXq47tP4F3ddv1S4kOZ8awDYsLykx0cPtyYgkcYPu"
-$url = "https://tired-moons-hunt.loca.lt/telegram/webhook"
+$token = "<TELEGRAM_BOT_TOKEN>"
+$secret = "<TELEGRAM_WEBHOOK_SECRET>"
+$url = "https://<your-backend-domain>/telegram/webhook"
 
 curl.exe -X POST "https://api.telegram.org/bot$token/setWebhook" `
   -d "url=$url" `
