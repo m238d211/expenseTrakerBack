@@ -1,3 +1,5 @@
+SET statement_timeout = 0;
+
 ALTER TYPE "TransactionSource" ADD VALUE 'recurring';
 
 ALTER TABLE "Category" ADD COLUMN "color" TEXT;
