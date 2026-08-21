@@ -331,7 +331,20 @@ export class FinanceService {
   createRecurring(userId: string, d: RecurringDto) { return this.db.recurringTransaction.create({ data: { ...d, userId, nextRunAt: new Date(d.nextRunAt), isActive: d.isActive ?? true } , include: { category: true } }); }
   async updateRecurring(userId: string, id: string, d: Partial<RecurringDto>) { const item = await this.db.recurringTransaction.findFirst({ where: { id, userId } }); if (!item) throw new Error("NOT_FOUND"); return this.db.recurringTransaction.update({ where: { id }, data: { ...d, ...(d.nextRunAt ? { nextRunAt: new Date(d.nextRunAt) } : {}) }, include: { category: true } }); }
   async deleteRecurring(userId: string, id: string) { const item = await this.db.recurringTransaction.findFirst({ where: { id, userId } }); if (!item) throw new Error("NOT_FOUND"); return this.db.recurringTransaction.delete({ where: { id } }); }
-  private nextRun(date: Date, frequency: RecurringFrequency, dayOfMonth?: number) { const next = new Date(date); if (frequency === RecurringFrequency.daily) next.setUTCDate(next.getUTCDate() + 1); if (frequency === RecurringFrequency.weekly) next.setUTCDate(next.getUTCDate() + 7); if (frequency === RecurringFrequency.monthly) { next.setUTCMonth(next.getUTCMonth() + 1); if (dayOfMonth) next.setUTCDate(Math.min(dayOfMonth, new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate())); } if (frequency === RecurringFrequency.yearly) next.setUTCFullYear(next.getUTCFullYear() + 1); return next; }
+  private nextRun(date: Date, frequency: RecurringFrequency, dayOfMonth?: number) {
+    const next = new Date(date);
+    if (frequency === RecurringFrequency.daily) next.setUTCDate(next.getUTCDate() + 1);
+    if (frequency === RecurringFrequency.weekly) next.setUTCDate(next.getUTCDate() + 7);
+    if (frequency === RecurringFrequency.monthly) {
+      const requestedDay = dayOfMonth ?? next.getUTCDate();
+      next.setUTCDate(1);
+      next.setUTCMonth(next.getUTCMonth() + 1);
+      const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+      next.setUTCDate(Math.min(requestedDay, lastDay));
+    }
+    if (frequency === RecurringFrequency.yearly) next.setUTCFullYear(next.getUTCFullYear() + 1);
+    return next;
+  }
   async processRecurring(now = new Date()) { const due = await this.db.recurringTransaction.findMany({ where: { isActive: true, nextRunAt: { lte: now } }, take: 200 }); let created = 0; for (const item of due) { try { await this.db.transaction.create({ data: { amount: item.amount, type: item.type, description: item.description, source: "recurring", status: "confirmed", transactionDate: item.nextRunAt, scheduledFor: item.nextRunAt, recurringTransactionId: item.id, userId: item.userId, categoryId: item.categoryId } }); await this.db.recurringTransaction.update({ where: { id: item.id }, data: { lastRunAt: item.nextRunAt, nextRunAt: this.nextRun(item.nextRunAt, item.frequency, item.dayOfMonth ?? undefined) } }); await this.notifications.send(item.userId, "عملية متكررة جديدة", `${item.description} - ${item.amount.toLocaleString("en-US")} د.ع`); created++; } catch { /* unique scheduledFor makes retries idempotent */ } } return { processed: due.length, created }; }
 }
 @Controller()
