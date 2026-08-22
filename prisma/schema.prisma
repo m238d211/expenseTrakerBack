@@ -52,6 +52,7 @@ model User {
   savingsGoals      SavingsGoal[]
   telegramAccounts  TelegramAccount[]
   devices           NotificationDevice[]
+  notifications     Notification[]
   linkTokens        TelegramLinkToken[]
   recurringTransactions RecurringTransaction[]
   tasks            Task[]
@@ -230,4 +231,17 @@ model NotificationDevice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }

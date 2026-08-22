@@ -46,6 +46,9 @@ Authenticated routes require `Authorization: Bearer <accessToken>`.
 | POST | `/telegram/webhook` | No* | Receive Telegram webhook updates |
 | POST | `/notifications/devices` | Yes | Register an FCM device token |
 | DELETE | `/notifications/devices` | Yes | Remove an FCM device token |
+| GET | `/notifications` | Yes | List the current user's saved notifications |
+| PATCH | `/notifications/:id/read` | Yes | Mark an owned notification as read |
+| DELETE | `/notifications/:id` | Yes | Delete an owned notification |
 | GET | `/tasks` | Yes | List the current user's tasks and ideas |
 | POST | `/tasks` | Yes | Create a task or idea |
 | PATCH | `/tasks/:id` | Yes | Update, complete, or snooze an owned task |
